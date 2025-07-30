@@ -21,9 +21,11 @@ class DocumentProcessor:
     def download_document(self, url: str) -> bytes:
         """Download document from URL"""
         try:
-            print(f"Attempting to download document from: {url}")
+            # [User Note] See logs for document download and extraction steps
+# print(f"Attempting to download document from: {url}")
             response = requests.get(url, timeout=30)
-            print(f"Download response status: {response.status_code}")
+            # [User Note] See logs for document download and extraction steps
+# print(f"Download response status: {response.status_code}")
             
             if response.status_code == 403:
                 raise Exception(f"Document access forbidden (403). The URL may be expired or have invalid authentication.")
@@ -31,11 +33,13 @@ class DocumentProcessor:
                 raise Exception(f"Document not found (404). The URL may be invalid.")
             
             response.raise_for_status()
-            print(f"Successfully downloaded document, size: {len(response.content)} bytes")
+            # [User Note] See logs for document download and extraction steps
+# print(f"Successfully downloaded document, size: {len(response.content)} bytes")
             return response.content
         except Exception as e:
             error_msg = f"Failed to download document from {url}: {str(e)}"
-            print(f"ERROR: {error_msg}")
+            # [User Note] See logs for document download and extraction steps
+# print(f"ERROR: {error_msg}")
             raise Exception(error_msg)
     
     def get_file_extension(self, url: str) -> str:

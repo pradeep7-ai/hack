@@ -63,6 +63,8 @@ async def run_hackrx_submission(request: QueryRequest):
             response.metadata["request_validation_time"] = time.time() - start_time
             response.metadata["questions_processed"] = len(request.questions)
         
+        # Prepare and return the structured response for the API call
+        # This response includes answers and relevant metadata for the client
         return response
         
     except HTTPException:

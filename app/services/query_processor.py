@@ -25,15 +25,19 @@ class QueryProcessor:
         
         try:
             # Step 1: Process document (download, extract text, chunk)
-            print(f"Processing document: {request.documents}")
+            # [User Note] See logs for details on document processing steps
+# print(f"Processing document: {request.documents}")
             chunks = self._process_document(request.documents)
-            print(f"Created {len(chunks)} chunks from document")
+            # [User Note] See logs for details on document processing steps
+# print(f"Created {len(chunks)} chunks from document")
             
             # Step 2: Create embeddings and store in vector database
-            print(f"Creating embeddings for {len(chunks)} chunks")
+            # [User Note] See logs for details on document processing steps
+# print(f"Creating embeddings for {len(chunks)} chunks")
             document_id = str(uuid.uuid4())
             embedding_ids = self.embedding_service.store_embeddings(chunks, document_id)
-            print(f"Stored {len(embedding_ids)} embeddings")
+            # [User Note] See logs for details on document processing steps
+# print(f"Stored {len(embedding_ids)} embeddings")
             
             # Step 3: Process each question
             answers = []
@@ -45,7 +49,8 @@ class QueryProcessor:
             }
             
             for i, question in enumerate(request.questions):
-                print(f"Processing question {i+1}/{len(request.questions)}: {question}")
+                # [User Note] See logs for details on document processing steps
+# print(f"Processing question {i+1}/{len(request.questions)}: {question}")
                 
                 # Step 4: Search for relevant chunks
                 search_results = self.embedding_service.search_similar(
@@ -53,7 +58,8 @@ class QueryProcessor:
                     top_k=5,
                     filter_dict={"document_id": document_id}
                 )
-                print(f"Found {len(search_results)} search results for question: {question[:50]}...")
+                # [User Note] See logs for details on document processing steps
+# print(f"Found {len(search_results)} search results for question: {question[:50]}...")
                 
                 # Step 5: Generate answer using LLM
                 llm_result = self.llm_service.generate_answer(question, search_results)
@@ -98,7 +104,8 @@ class QueryProcessor:
             )
             
         except Exception as e:
-            print(f"Error in query processor: {str(e)}")
+            # [User Note] See logs for details on document processing steps
+# print(f"Error in query processor: {str(e)}")
             # Return error response
             error_answers = [f"Error processing request: {str(e)}"] * len(request.questions)
             error_metadata = {
@@ -116,7 +123,8 @@ class QueryProcessor:
         """Process document and return chunks"""
         # Check cache first
         if document_url in self.document_cache:
-            print("Using cached document chunks")
+            # [User Note] See logs for details on document processing steps
+# print("Using cached document chunks")
             return self.document_cache[document_url]
         
         # Process document

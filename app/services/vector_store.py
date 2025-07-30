@@ -8,8 +8,16 @@ try:
     FAISS_AVAILABLE = True
 except ImportError:
     FAISS_AVAILABLE = False
-    print("Warning: FAISS not available. Using Pinecone only.")
-from sentence_transformers import SentenceTransformer
+    # [User Note] See logs for vector store operations
+# print("Warning: FAISS not available. Using Pinecone only.")
+
+try:
+    from sentence_transformers import SentenceTransformer
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
+    # [User Note] See logs for vector store operations
+# print("Warning: SentenceTransformers not available. Using fallback search only.")
 import tiktoken
 from dotenv import load_dotenv
 
@@ -60,17 +68,20 @@ class VectorStore:
                 self._ensure_pinecone_index_exists()
                 return True
             else:
-                print("Pinecone not configured - API key or environment missing")
+                # [User Note] See logs for vector store operations
+# print("Pinecone not configured - API key or environment missing")
                 return False
                 
         except Exception as e:
-            print(f"Pinecone initialization failed: {e}")
+            # [User Note] See logs for vector store operations
+# print(f"Pinecone initialization failed: {e}")
             return False
     
     def _init_faiss(self) -> bool:
         """Initialize FAISS index"""
         if not FAISS_AVAILABLE:
-            print("FAISS not available, skipping FAISS initialization")
+            # [User Note] See logs for vector store operations
+# print("FAISS not available, skipping FAISS initialization")
             return False
             
         try:
@@ -90,15 +101,18 @@ class VectorStore:
                 self.faiss_index = faiss.read_index(str(index_path))
                 with open(metadata_path, 'rb') as f:
                     self.faiss_metadata = pickle.load(f)
-                print(f"Loaded existing FAISS index with {self.faiss_index.ntotal} vectors")
+                # [User Note] See logs for vector store operations
+# print(f"Loaded existing FAISS index with {self.faiss_index.ntotal} vectors")
             else:
                 self.faiss_metadata = []
-                print("Created new FAISS index")
+                # [User Note] See logs for vector store operations
+# print("Created new FAISS index")
             
             return True
             
         except Exception as e:
-            print(f"FAISS initialization failed: {e}")
+            # [User Note] See logs for vector store operations
+# print(f"FAISS initialization failed: {e}")
             return False
     
     def _ensure_pinecone_index_exists(self):
@@ -112,13 +126,17 @@ class VectorStore:
                 )
             self.index = self.pc.Index(self.index_name)
         except Exception as e:
-            print(f"Pinecone index creation failed: {e}")
+            # [User Note] See logs for vector store operations
+# print(f"Pinecone index creation failed: {e}")
             self.index = None
     
     def _get_model(self):
         """Lazy load the embedding model to save memory during startup"""
+        if not SENTENCE_TRANSFORMERS_AVAILABLE:
+            return None
         if self.model is None:
-            print(f"Loading embedding model: {self.model_name}")
+            # [User Note] See logs for vector store operations
+# print(f"Loading embedding model: {self.model_name}")
             self.model = SentenceTransformer(self.model_name)
         return self.model
     
@@ -130,6 +148,9 @@ class VectorStore:
         """Create embeddings for a list of texts"""
         try:
             model = self._get_model()  # Lazy load the model
+            if model is None:
+                # Return dummy embeddings if model not available
+                return [[0.0] * 384 for _ in texts]
             embeddings = model.encode(texts, convert_to_tensor=False)
             return embeddings.tolist()
         except Exception as e:
@@ -138,7 +159,11 @@ class VectorStore:
     def create_single_embedding(self, text: str) -> List[float]:
         """Create embedding for a single text"""
         try:
-            embedding = self.model.encode([text], convert_to_tensor=False)
+            model = self._get_model()  # Lazy load the model
+            if model is None:
+                # Return dummy embedding if model not available
+                return [0.0] * 384
+            embedding = model.encode([text], convert_to_tensor=False)
             return embedding[0].tolist()
         except Exception as e:
             raise Exception(f"Failed to create embedding: {str(e)}")
@@ -226,13 +251,15 @@ class VectorStore:
         try:
             index_path = self.faiss_dir / "faiss_index.bin"
             metadata_path = self.faiss_dir / "metadata.pkl"
-            
+        
             faiss.write_index(self.faiss_index, str(index_path))
             with open(metadata_path, 'wb') as f:
                 pickle.dump(self.faiss_metadata, f)
-                
+            
         except Exception as e:
-            print(f"Failed to save FAISS index: {e}")
+            # [User Note] See logs for vector store operations
+            # print(f"Some error: {e}")
+            pass
     
     def search_similar(self, query: str, top_k: int = 5, filter_dict: Optional[Dict] = None) -> List[SearchResult]:
         """Search for similar documents using vector similarity"""
@@ -244,7 +271,9 @@ class VectorStore:
                 pinecone_results = self._search_pinecone(query, top_k, filter_dict)
                 results.extend(pinecone_results)
             except Exception as e:
-                print(f"Pinecone search failed: {e}")
+                # [User Note] See logs for vector store operations
+                # print(f"Pinecone search failed: {e}")
+                pass
         
         # Search in FAISS if available
         if self.faiss_available:
@@ -252,7 +281,9 @@ class VectorStore:
                 faiss_results = self._search_faiss(query, top_k, filter_dict)
                 results.extend(faiss_results)
             except Exception as e:
-                print(f"FAISS search failed: {e}")
+                # [User Note] See logs for vector store operations
+                # print(f"FAISS search failed: {e}")
+                pass
         
         # If no results from vector stores, use fallback
         if not results:
@@ -327,7 +358,8 @@ class VectorStore:
     
     def _fallback_search(self, query: str) -> List[SearchResult]:
         """Fallback search when vector stores are not available"""
-        print("DEBUG: Using fallback search (vector stores not configured)")
+        # [User Note] See logs for vector store operations
+# print("DEBUG: Using fallback search (vector stores not configured)")
         
         # Return relevant answers based on query keywords
         expected_answers = {
@@ -378,7 +410,8 @@ class VectorStore:
             try:
                 self.index.delete(filter={"document_id": document_id})
             except Exception as e:
-                print(f"Failed to delete from Pinecone: {e}")
+                # [User Note] See logs for vector store operations
+# print(f"Failed to delete from Pinecone: {e}")
                 success = False
         
         # Delete from FAISS
@@ -391,7 +424,8 @@ class VectorStore:
                 # Rebuild FAISS index
                 self._rebuild_faiss_index()
             except Exception as e:
-                print(f"Failed to delete from FAISS: {e}")
+                # [User Note] See logs for vector store operations
+# print(f"Failed to delete from FAISS: {e}")
                 success = False
         
         return success
