@@ -32,6 +32,9 @@ class VectorStore:
         self.pinecone_available = False
         self.faiss_available = False
         
+        # Set dimension for embedding model
+        self.dimension = 384  # Dimension for all-MiniLM-L6-v2
+        
         # Try Pinecone first
         if use_pinecone:
             self.pinecone_available = self._init_pinecone()
@@ -126,7 +129,8 @@ class VectorStore:
     def create_embeddings(self, texts: List[str]) -> List[List[float]]:
         """Create embeddings for a list of texts"""
         try:
-            embeddings = self.model.encode(texts, convert_to_tensor=False)
+            model = self._get_model()  # Lazy load the model
+            embeddings = model.encode(texts, convert_to_tensor=False)
             return embeddings.tolist()
         except Exception as e:
             raise Exception(f"Failed to create embeddings: {str(e)}")

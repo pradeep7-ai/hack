@@ -8,8 +8,8 @@ import requests
 import json
 
 # Replace with your actual deployed URL
-BASE_URL = "https://your-app-name.onrender.com"
-API_ENDPOINT = f"{BASE_URL}/hackrx/run"
+BASE_URL = "https://raghack.onrender.com"
+API_ENDPOINT = f"{BASE_URL}/api/v1/hackrx/run"
 
 # Authentication token (as specified in requirements)
 AUTH_TOKEN = "a863b0e20b90a5c03973a305d4b966b43a6cc5a1b8292f0d5dfb226c42a5cf60"
