@@ -21,9 +21,9 @@ class VectorStore:
     """Unified vector store service supporting both Pinecone and FAISS"""
     
     def __init__(self, use_pinecone: bool = True, use_faiss: bool = True):
-        # Initialize sentence transformer model
+        # Initialize sentence transformer model (lazy loading for memory efficiency)
         self.model_name = "all-MiniLM-L6-v2"
-        self.model = SentenceTransformer(self.model_name)
+        self.model = None  # Lazy load to save memory
         
         # Tokenizer for counting tokens
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -111,6 +111,13 @@ class VectorStore:
         except Exception as e:
             print(f"Pinecone index creation failed: {e}")
             self.index = None
+    
+    def _get_model(self):
+        """Lazy load the embedding model to save memory during startup"""
+        if self.model is None:
+            print(f"Loading embedding model: {self.model_name}")
+            self.model = SentenceTransformer(self.model_name)
+        return self.model
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken"""
