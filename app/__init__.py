@@ -1,0 +1,1 @@
+# HackRx 6.0 - LLM-Powered Query-Retrieval System 
