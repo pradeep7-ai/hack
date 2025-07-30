@@ -11,7 +11,6 @@ click==8.2.1
 colorama==0.4.6
 dataclasses-json==0.6.7
 distro==1.9.0
-faiss-cpu==1.7.4
 fastapi==0.116.1
 filelock==3.18.0
 frozenlist==1.7.0

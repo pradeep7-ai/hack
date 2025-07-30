@@ -3,7 +3,12 @@ import pickle
 import numpy as np
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
-import faiss
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    print("Warning: FAISS not available. Using Pinecone only.")
 from sentence_transformers import SentenceTransformer
 import tiktoken
 from dotenv import load_dotenv
@@ -61,6 +66,10 @@ class VectorStore:
     
     def _init_faiss(self) -> bool:
         """Initialize FAISS index"""
+        if not FAISS_AVAILABLE:
+            print("FAISS not available, skipping FAISS initialization")
+            return False
+            
         try:
             # Create FAISS index directory
             self.faiss_dir = Path("vector_store")
@@ -178,10 +187,10 @@ class VectorStore:
             
             # Convert to numpy array and normalize for cosine similarity
             embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
-            faiss.normalize_L2(embedding_array)
-            
-            # Add to FAISS index
-            self.faiss_index.add(embedding_array)
+            if FAISS_AVAILABLE:
+                faiss.normalize_L2(embedding_array)
+                # Add to FAISS index
+                self.faiss_index.add(embedding_array)
             
             # Store metadata
             metadata = {
