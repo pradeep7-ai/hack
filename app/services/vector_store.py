@@ -3,13 +3,6 @@ import pickle
 import numpy as np
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
-try:
-    import faiss
-    FAISS_AVAILABLE = True
-except ImportError:
-    FAISS_AVAILABLE = False
-    # [User Note] See logs for vector store operations
-# print("Warning: FAISS not available. Using Pinecone only.")
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -28,7 +21,7 @@ load_dotenv()
 class VectorStore:
     """Unified vector store service supporting both Pinecone and FAISS"""
     
-    def __init__(self, use_pinecone: bool = True, use_faiss: bool = True):
+    def __init__(self, use_pinecone: bool = True, use_faiss: bool = False):
         # Initialize sentence transformer model (lazy loading for memory efficiency)
         self.model_name = "all-MiniLM-L6-v2"
         self.model = None  # Lazy load to save memory
@@ -43,16 +36,16 @@ class VectorStore:
         # Set dimension for embedding model
         self.dimension = 384  # Dimension for all-MiniLM-L6-v2
         
-        # Try Pinecone first
+        # Try Pinecone only
         if use_pinecone:
             self.pinecone_available = self._init_pinecone()
         
-        # Initialize FAISS as fallback or primary
-        if use_faiss:
-            self.faiss_available = self._init_faiss()
+        # FAISS is disabled for cloud deployment
+        # if use_faiss:
+        #     self.faiss_available = self._init_faiss()
         
-        if not self.pinecone_available and not self.faiss_available:
-            raise Exception("No vector store available. Please configure Pinecone or ensure FAISS can be initialized.")
+        if not self.pinecone_available:
+            raise Exception("No vector store available. Please configure Pinecone.")
     
     def _init_pinecone(self) -> bool:
         """Initialize Pinecone connection"""
@@ -182,11 +175,6 @@ class VectorStore:
                 pinecone_ids = self._store_in_pinecone(chunks, embeddings, document_id)
                 embedding_ids.extend(pinecone_ids)
             
-            # Store in FAISS if available
-            if self.faiss_available:
-                faiss_ids = self._store_in_faiss(chunks, embeddings, document_id)
-                embedding_ids.extend(faiss_ids)
-            
             return embedding_ids
             
         except Exception as e:
@@ -214,53 +202,6 @@ class VectorStore:
         self.index.upsert(vectors=vectors)
         return [vector["id"] for vector in vectors]
     
-    def _store_in_faiss(self, chunks: List[DocumentChunk], embeddings: List[List[float]], document_id: str) -> List[str]:
-        """Store embeddings in FAISS"""
-        embedding_ids = []
-        
-        for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
-            vector_id = f"{document_id}_{chunk.chunk_id}"
-            
-            # Convert to numpy array and normalize for cosine similarity
-            embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
-            if FAISS_AVAILABLE:
-                faiss.normalize_L2(embedding_array)
-                # Add to FAISS index
-                self.faiss_index.add(embedding_array)
-            
-            # Store metadata
-            metadata = {
-                "id": vector_id,
-                "document_id": document_id,
-                "chunk_id": chunk.chunk_id,
-                "content": chunk.content,
-                "token_count": self.count_tokens(chunk.content),
-                **chunk.metadata
-            }
-            self.faiss_metadata.append(metadata)
-            
-            embedding_ids.append(vector_id)
-        
-        # Save FAISS index and metadata
-        self._save_faiss_index()
-        
-        return embedding_ids
-    
-    def _save_faiss_index(self):
-        """Save FAISS index and metadata to disk"""
-        try:
-            index_path = self.faiss_dir / "faiss_index.bin"
-            metadata_path = self.faiss_dir / "metadata.pkl"
-        
-            faiss.write_index(self.faiss_index, str(index_path))
-            with open(metadata_path, 'wb') as f:
-                pickle.dump(self.faiss_metadata, f)
-            
-        except Exception as e:
-            # [User Note] See logs for vector store operations
-            # print(f"Some error: {e}")
-            pass
-    
     def search_similar(self, query: str, top_k: int = 5, filter_dict: Optional[Dict] = None) -> List[SearchResult]:
         """Search for similar documents using vector similarity"""
         results = []
@@ -272,17 +213,7 @@ class VectorStore:
                 results.extend(pinecone_results)
             except Exception as e:
                 # [User Note] See logs for vector store operations
-                # print(f"Pinecone search failed: {e}")
-                pass
-        
-        # Search in FAISS if available
-        if self.faiss_available:
-            try:
-                faiss_results = self._search_faiss(query, top_k, filter_dict)
-                results.extend(faiss_results)
-            except Exception as e:
-                # [User Note] See logs for vector store operations
-                # print(f"FAISS search failed: {e}")
+# print(f"Pinecone search failed: {e}")
                 pass
         
         # If no results from vector stores, use fallback
@@ -315,46 +246,6 @@ class VectorStore:
             results.append(result)
         
         return results
-    
-    def _search_faiss(self, query: str, top_k: int, filter_dict: Optional[Dict]) -> List[SearchResult]:
-        """Search in FAISS"""
-        if self.faiss_index.ntotal == 0:
-            return []
-        
-        # Create query embedding
-        query_embedding = self.create_single_embedding(query)
-        query_array = np.array(query_embedding, dtype=np.float32).reshape(1, -1)
-        faiss.normalize_L2(query_array)
-        
-        # Search
-        scores, indices = self.faiss_index.search(query_array, min(top_k, self.faiss_index.ntotal))
-        
-        results = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < len(self.faiss_metadata):
-                metadata = self.faiss_metadata[idx]
-                
-                # Apply filter if provided
-                if filter_dict:
-                    if not self._matches_filter(metadata, filter_dict):
-                        continue
-                
-                result = SearchResult(
-                    content=metadata.get("content", ""),
-                    score=float(score),
-                    source=metadata.get("document_id", ""),
-                    metadata=metadata
-                )
-                results.append(result)
-        
-        return results
-    
-    def _matches_filter(self, metadata: Dict, filter_dict: Dict) -> bool:
-        """Check if metadata matches filter criteria"""
-        for key, value in filter_dict.items():
-            if key not in metadata or metadata[key] != value:
-                return False
-        return True
     
     def _fallback_search(self, query: str) -> List[SearchResult]:
         """Fallback search when vector stores are not available"""
@@ -414,49 +305,12 @@ class VectorStore:
 # print(f"Failed to delete from Pinecone: {e}")
                 success = False
         
-        # Delete from FAISS
-        if self.faiss_available:
-            try:
-                # Remove from metadata and rebuild index
-                self.faiss_metadata = [meta for meta in self.faiss_metadata 
-                                     if meta.get("document_id") != document_id]
-                
-                # Rebuild FAISS index
-                self._rebuild_faiss_index()
-            except Exception as e:
-                # [User Note] See logs for vector store operations
-# print(f"Failed to delete from FAISS: {e}")
-                success = False
-        
         return success
-    
-    def _rebuild_faiss_index(self):
-        """Rebuild FAISS index from metadata"""
-        if not self.faiss_metadata:
-            self.faiss_index = faiss.IndexFlatIP(self.dimension)
-            return
-        
-        # Create new index
-        self.faiss_index = faiss.IndexFlatIP(self.dimension)
-        
-        # Re-add all embeddings
-        for metadata in self.faiss_metadata:
-            content = metadata.get("content", "")
-            if content:
-                embedding = self.create_single_embedding(content)
-                embedding_array = np.array(embedding, dtype=np.float32).reshape(1, -1)
-                faiss.normalize_L2(embedding_array)
-                self.faiss_index.add(embedding_array)
-        
-        # Save updated index
-        self._save_faiss_index()
     
     def get_stats(self) -> Dict[str, Any]:
         """Get statistics about the vector stores"""
         stats = {
             "pinecone_available": self.pinecone_available,
-            "faiss_available": self.faiss_available,
-            "faiss_vector_count": self.faiss_index.ntotal if self.faiss_available else 0
         }
         
         if self.pinecone_available and self.index:

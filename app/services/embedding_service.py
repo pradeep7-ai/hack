@@ -13,7 +13,7 @@ class EmbeddingService:
     
     def __init__(self):
         # Initialize the unified vector store
-        self.vector_store = VectorStore(use_pinecone=True, use_faiss=True)
+        self.vector_store = VectorStore(use_pinecone=True, use_faiss=False)
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken"""
@@ -43,7 +43,7 @@ class EmbeddingService:
         """Get statistics about the embedding index"""
         return self.vector_store.get_stats()
     
-    def batch_process_chunks(self, chunks: List[DocumentChunk], batch_size: int = 100) -> List[List[float]]:
+    def batch_process_chunks(self, chunks: List[DocumentChunk], batch_size: int = 16) -> List[List[float]]:
         """Process chunks in batches to avoid memory issues"""
         all_embeddings = []
         

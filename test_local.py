@@ -2,7 +2,7 @@ import requests
 import json
 
 # Local API endpoint
-BASE_URL = "http://localhost:8000"
+BASE_URL = "https://raghack.onrender.com"
 API_ENDPOINT = f"{BASE_URL}/api/v1/hackrx/run"
 
 # Authentication token
