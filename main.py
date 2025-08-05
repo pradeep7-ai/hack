@@ -7,13 +7,9 @@ import os
 from dotenv import load_dotenv
 
 from app.api.hackrx import router as hackrx_router
-from app.database import engine, Base
 
 # Load environment variables
 load_dotenv()
-
-# Create database tables
-Base.metadata.create_all(bind=engine)
 
 # Security
 security = HTTPBearer()
