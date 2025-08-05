@@ -44,7 +44,8 @@ class EmbeddingService:
         return self.vector_store.get_stats()
     
     def batch_process_chunks(self, chunks: List[DocumentChunk], batch_size: int = 16) -> List[List[float]]:
-        """Process chunks in batches to avoid memory issues"""
+        # Process embeddings in very small batches for cloud deployment (512MB limit)
+        batch_size = 4  # Further reduced for Render's memory constraints
         all_embeddings = []
         
         for i in range(0, len(chunks), batch_size):
@@ -52,5 +53,9 @@ class EmbeddingService:
             texts = [chunk.content for chunk in batch]
             batch_embeddings = self.create_embeddings(texts)
             all_embeddings.extend(batch_embeddings)
+            # Clean up memory after processing batch
+            del batch
+            del texts
+            del batch_embeddings
         
-        return all_embeddings 
+        return all_embeddings

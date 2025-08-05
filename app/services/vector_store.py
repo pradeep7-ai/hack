@@ -1,14 +1,13 @@
 import os
-import pickle
-import numpy as np
-from typing import List, Dict, Any, Optional, Union
+import json
+import uuid
 from pathlib import Path
+from typing import List, Dict, Any, Optional
+import tiktoken
+from dotenv import load_dotenv
+import openai
 
-try:
-    from sentence_transformers import SentenceTransformer
-    SENTENCE_TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    SENTENCE_TRANSFORMERS_AVAILABLE = False
+# No more heavy ML dependencies - using OpenAI API instead
     # [User Note] See logs for vector store operations
 # print("Warning: SentenceTransformers not available. Using fallback search only.")
 import tiktoken
@@ -22,9 +21,9 @@ class VectorStore:
     """Unified vector store service supporting both Pinecone and FAISS"""
     
     def __init__(self, use_pinecone: bool = True, use_faiss: bool = False):
-        # Initialize sentence transformer model (lazy loading for memory efficiency)
-        self.model_name = "all-MiniLM-L6-v2"
-        self.model = None  # Lazy load to save memory
+        # Use OpenAI embeddings instead of local models (no memory usage)
+        self.embedding_model = "text-embedding-3-small"  # OpenAI's efficient embedding model
+        self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         
         # Tokenizer for counting tokens
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
@@ -33,8 +32,8 @@ class VectorStore:
         self.pinecone_available = False
         self.faiss_available = False
         
-        # Set dimension for embedding model
-        self.dimension = 384  # Dimension for all-MiniLM-L6-v2
+        # Set dimension for OpenAI embedding model
+        self.dimension = 1536  # Dimension for text-embedding-3-small
         
         # Try Pinecone only
         if use_pinecone:
@@ -123,41 +122,52 @@ class VectorStore:
 # print(f"Pinecone index creation failed: {e}")
             self.index = None
     
-    def _get_model(self):
-        """Lazy load the embedding model to save memory during startup"""
-        if not SENTENCE_TRANSFORMERS_AVAILABLE:
-            return None
-        if self.model is None:
-            # [User Note] See logs for vector store operations
-# print(f"Loading embedding model: {self.model_name}")
-            self.model = SentenceTransformer(self.model_name)
-        return self.model
+    def _create_openai_embedding(self, text: str) -> List[float]:
+        """Create embedding using OpenAI API (no local models needed)"""
+        try:
+            response = self.openai_client.embeddings.create(
+                model=self.embedding_model,
+                input=text
+            )
+            return response.data[0].embedding
+        except Exception as e:
+            raise Exception(f"Failed to create OpenAI embedding: {str(e)}")
+    
+    def _create_openai_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
+        """Create embeddings for multiple texts using OpenAI API"""
+        try:
+            response = self.openai_client.embeddings.create(
+                model=self.embedding_model,
+                input=texts
+            )
+            return [item.embedding for item in response.data]
+        except Exception as e:
+            raise Exception(f"Failed to create OpenAI embeddings: {str(e)}")
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using tiktoken"""
         return len(self.tokenizer.encode(text))
     
     def create_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Create embeddings for a list of texts"""
+        """Create embeddings using OpenAI API (no local models, no memory issues)"""
         try:
-            model = self._get_model()  # Lazy load the model
-            if model is None:
-                # Return dummy embeddings if model not available
-                return [[0.0] * 384 for _ in texts]
-            embeddings = model.encode(texts, convert_to_tensor=False)
-            return embeddings.tolist()
+            # Process in batches for OpenAI API rate limits
+            batch_size = 100  # OpenAI can handle larger batches efficiently
+            all_embeddings = []
+            
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                batch_embeddings = self._create_openai_embeddings_batch(batch)
+                all_embeddings.extend(batch_embeddings)
+            
+            return all_embeddings
         except Exception as e:
             raise Exception(f"Failed to create embeddings: {str(e)}")
     
     def create_single_embedding(self, text: str) -> List[float]:
-        """Create embedding for a single text"""
+        """Create embedding for a single text using OpenAI API"""
         try:
-            model = self._get_model()  # Lazy load the model
-            if model is None:
-                # Return dummy embedding if model not available
-                return [0.0] * 384
-            embedding = model.encode([text], convert_to_tensor=False)
-            return embedding[0].tolist()
+            return self._create_openai_embedding(text)
         except Exception as e:
             raise Exception(f"Failed to create embedding: {str(e)}")
     
