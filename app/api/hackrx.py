@@ -6,7 +6,6 @@ import time
 
 from app.models import QueryRequest, QueryResponse
 from app.services.query_processor import QueryProcessor
-from app.database import get_db
 
 # Security
 security = HTTPBearer()
