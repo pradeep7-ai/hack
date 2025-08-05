@@ -1,5 +1,4 @@
 import os
-import numpy as np
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 
