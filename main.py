@@ -90,6 +90,11 @@ app.include_router(
     prefix="/api/v1"
 )
 
+# Also include router without prefix for hackathon compatibility
+app.include_router(
+    hackrx_router
+)
+
 @app.get("/")
 async def root():
     """Root endpoint with system information"""

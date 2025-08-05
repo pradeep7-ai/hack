@@ -52,10 +52,19 @@ async def run_hackrx_submission(request: QueryRequest):
         if len(request.questions) > 20:
             raise HTTPException(status_code=400, detail="Maximum 20 questions allowed per request")
         
-        # Process the request
+        # Process the request with detailed logging
         print("=== REAL IMPLEMENTATION CALLED ===")
-        response = query_processor.process_query_request(request)
-        print("=== REAL IMPLEMENTATION COMPLETED ===")
+        print(f"Document URL: {request.documents}")
+        print(f"Questions: {request.questions}")
+        
+        try:
+            response = query_processor.process_query_request(request)
+            print(f"Response generated: {len(response.answers)} answers")
+            print(f"Sample answer: {response.answers[0][:100] if response.answers else 'No answers'}...")
+            print("=== REAL IMPLEMENTATION COMPLETED ===")
+        except Exception as e:
+            print(f"ERROR in query processing: {str(e)}")
+            raise
         
         # Add request metadata
         if response.metadata:
@@ -197,6 +206,22 @@ async def test_embeddings(text: str):
             status_code=500,
             detail=f"Embedding test failed: {str(e)}"
         )
+
+@router.post("/hackrx/test")
+async def test_endpoint(request: QueryRequest):
+    """Simple test endpoint for debugging hackathon evaluation"""
+    return {
+        "answers": [
+            "Test answer 1: This is a sample response",
+            "Test answer 2: Another sample response",
+            "Test answer 3: Third sample response"
+        ][:len(request.questions)],
+        "metadata": {
+            "test_mode": True,
+            "document_url": request.documents,
+            "question_count": len(request.questions)
+        }
+    }
 
 @router.get("/hackrx/version")
 async def get_version():
