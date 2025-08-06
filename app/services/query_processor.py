@@ -2,6 +2,7 @@ import time
 import uuid
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 
 from app.services.document_processor import DocumentProcessor
 from app.services.embedding_service import EmbeddingService
@@ -20,104 +21,111 @@ class QueryProcessor:
         self.document_cache = {}
     
     def process_query_request(self, request: QueryRequest) -> QueryResponse:
-        """Main method to process a query request"""
-        start_time = time.time()
-        
+        """Process a query request with multiple questions using batched LLM calls"""
         try:
-            # Step 1: Process document (download, extract text, chunk)
-            # [User Note] See logs for details on document processing steps
-# print(f"Processing document: {request.documents}")
-            chunks = self._process_document(request.documents)
-            # [User Note] See logs for details on document processing steps
-# print(f"Created {len(chunks)} chunks from document")
+            start_time = time.time()
             
-            # Step 2: Create embeddings and store in vector database
-            # [User Note] See logs for details on document processing steps
-# print(f"Creating embeddings for {len(chunks)} chunks")
-            document_id = str(uuid.uuid4())
-            embedding_ids = self.embedding_service.store_embeddings(chunks, document_id)
-            # [User Note] See logs for details on document processing steps
-# print(f"Stored {len(embedding_ids)} embeddings")
+            # Step 1: Process document if URL is provided
+            document_id = None
+            if request.documents:
+                try:
+                    chunks = self.document_processor.process_document(request.documents)
+                    document_id = str(uuid.uuid4())
+                    self.embedding_service.store_embeddings(chunks, document_id)
+                except Exception as doc_err:
+                    return QueryResponse(
+                        answers=[f"Error processing document: {str(doc_err)}"] * len(request.questions)
+                    )
             
-            # Step 3: Process each question
-            answers = []
-            metadata = {
-                "document_id": document_id,
-                "chunk_count": len(chunks),
-                "embedding_ids": embedding_ids,
-                "processing_details": []
-            }
-            
-            for i, question in enumerate(request.questions):
-                # [User Note] See logs for details on document processing steps
-# print(f"Processing question {i+1}/{len(request.questions)}: {question}")
+            # Step 2: Process questions in batch
+            try:
+                # Process all questions in a single batch
+                search_results = []
+                for question in request.questions:
+                    results = self.embedding_service.search_similar(
+                        question,
+                        top_k=1,
+                        filter_dict={"document_id": document_id} if document_id else None
+                    )
+                    search_results.append(results[0] if results else None)
                 
-                # Step 4: Search for relevant chunks
-                search_results = self.embedding_service.search_similar(
-                    question, 
-                    top_k=5,
-                    filter_dict={"document_id": document_id}
-                )
-                # [User Note] See logs for details on document processing steps
-# print(f"Found {len(search_results)} search results for question: {question[:50]}...")
+                # Create a single prompt for all questions
+                batch_prompt = self._create_batch_prompt(request.questions, search_results)
                 
-                # Step 5: Generate answer using LLM
-                llm_result = self.llm_service.generate_answer(question, search_results)
+                # Get batch answers
+                llm_response = self.llm_service.generate_batch_answers(batch_prompt, len(request.questions))
                 
-                # Step 6: Validate answer
-                context_texts = [result.content for result in search_results]
-                validation = self.llm_service.validate_answer(
-                    llm_result["answer"], 
-                    question, 
-                    context_texts
-                )
+                # Parse the answers
+                answers = llm_response.get("answers", [f"Error: Could not generate answer"] * len(request.questions))
                 
-                # Store processing details
-                processing_detail = {
-                    "question_index": i,
-                    "question": question,
-                    "search_results_count": len(search_results),
-                    "processing_time": llm_result.get("processing_time", 0),
-                    "token_usage": llm_result.get("total_tokens", 0),
-                    "validation_score": validation.get("score", 0),
-                    "top_search_scores": [result.score for result in search_results[:3]]
-                }
-                metadata["processing_details"].append(processing_detail)
+                # Ensure we have the right number of answers
+                if len(answers) != len(request.questions):
+                    answers = [f"Error: Mismatch in number of answers"] * len(request.questions)
                 
-                answers.append(llm_result["answer"])
-            
-            # Calculate total processing time
-            total_time = time.time() - start_time
-            
-            # Add summary metadata
-            metadata.update({
-                "total_processing_time": total_time,
-                "total_questions": len(request.questions),
-                "average_processing_time_per_question": total_time / len(request.questions),
-                "document_url": request.documents,
-                "processed_at": datetime.utcnow().isoformat()
-            })
-            
+                return QueryResponse(answers=answers)
+                
+            except Exception as llm_err:
+                print(f"Batch processing failed, falling back to individual processing: {str(llm_err)}")
+                return self._process_individually(request, document_id, start_time)
+                
+        except Exception as e:
             return QueryResponse(
-                answers=answers,
-                metadata=metadata
+                answers=[f"Error processing request: {str(e)}" for _ in request.questions]
             )
+            
+    def _create_batch_prompt(self, questions: List[str], search_results: List[Any]) -> str:
+        """Create a single prompt with all questions and their contexts"""
+        prompt_parts = [
+            "You are an expert insurance policy analyst. Answer the following questions based on the provided context for each.",
+            "For each question, use only the context provided immediately before it.",
+            "If the answer is not in the context, say 'Not specified in the document'.",
+            "Format your answers exactly as: A1: [answer]\nA2: [answer] and so on.\n\n"
+        ]
+        
+        for i, (question, result) in enumerate(zip(questions, search_results), 1):
+            context = result.content if result else "No relevant context found."
+            prompt_parts.extend([
+                f"--- CONTEXT FOR QUESTION {i} ---\n",
+                f"{context}\n\n",
+                f"Q{i}: {question}\n",
+                f"A{i}:"  # Leave space for the answer
+            ])
+            
+            # Add separation between Q&A pairs
+            if i < len(questions):
+                prompt_parts.append("\n\n")
+        
+        return "".join(prompt_parts)
+    
+    def _process_individually(self, request: QueryRequest, document_id: str, start_time: float) -> QueryResponse:
+        """Fallback method to process questions individually"""
+        try:
+            answers = [""] * len(request.questions)
+            
+            for idx, question in enumerate(request.questions):
+                try:
+                    search_results = self.embedding_service.search_similar(
+                        question, 
+                        top_k=1,
+                        filter_dict={"document_id": document_id} if document_id else None
+                    )
+                    
+                    # Process with LLM
+                    context = search_results[0].content if search_results else "No relevant context found."
+                    prompt = f"Question: {question}\n\nContext:\n{context}\n\nAnswer:"
+                    
+                    llm_result = self.llm_service.generate_answer(prompt, search_results)
+                    answers[idx] = llm_result.get("answer", "Error generating answer")
+                    
+                except Exception as qe:
+                    answers[idx] = f"Error processing question: {str(qe)}"
+            
+            return QueryResponse(answers=answers)
             
         except Exception as e:
-            # [User Note] See logs for details on document processing steps
-# print(f"Error in query processor: {str(e)}")
-            # Return error response
-            error_answers = [f"Error processing request: {str(e)}"] * len(request.questions)
-            error_metadata = {
-                "error": str(e),
-                "processing_time": time.time() - start_time,
-                "processed_at": datetime.utcnow().isoformat()
-            }
-            
-            return QueryResponse(
-                answers=error_answers,
-                metadata=error_metadata
-            )
+            error_answers = [f"Error processing request: {str(e)}"] * len(request.questions) if hasattr(request, 'questions') else ["Internal server error"]
+            return QueryResponse(answers=error_answers)
+
     
     def _process_document(self, document_url: str) -> List[DocumentChunk]:
         """Process document and return chunks"""

@@ -44,13 +44,15 @@ async def run_hackrx_submission(request: QueryRequest):
         
         # Validate request
         if not request.documents:
-            raise HTTPException(status_code=400, detail="Document URL is required")
+            return QueryResponse(
+                answers=["Error: Document URL is required"] * len(request.questions) if request.questions else ["Error: No questions provided"]
+            )
         
         if not request.questions or len(request.questions) == 0:
-            raise HTTPException(status_code=400, detail="At least one question is required")
+            return QueryResponse(answers=["Error: At least one question is required"])
         
         if len(request.questions) > 20:
-            raise HTTPException(status_code=400, detail="Maximum 20 questions allowed per request")
+            return QueryResponse(answers=["Error: Maximum 20 questions allowed per request"] * len(request.questions))
         
         # Process the request with detailed logging
         print("=== REAL IMPLEMENTATION CALLED ===")
@@ -75,12 +77,10 @@ async def run_hackrx_submission(request: QueryRequest):
         # This response includes answers and relevant metadata for the client
         return response
         
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Internal server error: {str(e)}"
+        error_msg = f"Internal server error: {str(e)}"
+        return QueryResponse(
+            answers=[error_msg] * (len(request.questions) if request and hasattr(request, 'questions') else 1)
         )
 
 @router.get("/hackrx/health")
