@@ -50,3 +50,11 @@ venv.bak/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Test files
+test_performance.py
+test_both_endpoints.py
+test_local.py
+test_demo.py
+test_deployment.py
+test_hackathon_format.py
